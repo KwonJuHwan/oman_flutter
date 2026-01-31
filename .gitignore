@@ -1,0 +1,95 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Flutter/Dart 관련 (빌드 파일 및 라이브러리 캐시)
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+
+# Android 관련 (로컬 설정 및 빌드 파일)
+android/local.properties
+android/.gradle
+android/app/build
+android/app/release
+android/app/src/main/assets/public
+android/app/src/main/assets/flutter_assets
+
+# iOS 관련 (생성된 설정 및 Pods)
+ios/Flutter/App.framework
+ios/Flutter/Flutter.framework
+ios/Flutter/Generated.xcconfig
+ios/Flutter/app.flx
+ios/Flutter/app.zip
+ios/Flutter/flutter_assets/
+ios/Pods/
+ios/.symlinks/
+
+# VS Code 및 IDE 설정 (개인 설정 파일)
+.vscode/
+.idea/
+*.iml
+
+# Mac/Windows 시스템 파일
+.DS_Store
+Thumbs.db
+
+# Mac/iOS 관련 강력한 무시 설정
+**/Pods/
+**/DerivedData/
+**/build/
+ios/.generated/
+macos/Flutter/ephemeral/
+ios/Flutter/Generated.xcconfig
+
+# Windows/Linux 관련 무시 설정
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/
+
+# 기타 시스템 파일
+.DS_Store
+**/.DS_Store
