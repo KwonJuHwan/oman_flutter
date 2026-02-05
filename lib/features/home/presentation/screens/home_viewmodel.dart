@@ -12,7 +12,9 @@ class HomeViewModel extends ChangeNotifier {
   bool _isRealDataLoaded = false;
   bool _isResultVisible = false;
   bool _hasSelection = false;
-
+  String? _selectedDishName;
+  
+  String? get selectedDishName => _selectedDishName;
   SearchType get selectedType => _selectedType;
   bool get isModalLoading => _isModalLoading;
   bool get isRealDataLoaded => _isRealDataLoaded;
@@ -39,6 +41,7 @@ class HomeViewModel extends ChangeNotifier {
   bool get isSearchFocused => searchFocusNode.hasFocus;
 
   List<String> get recentSearches => ["신김치", "돼지고기", "두부"];
+  List<String> get recentRecipeSearches => ["김치찌개", "된장찌개", "계란말이", "제육볶음"];
 
   // 📍 화면 가장자리를 물들일 색상 (withValues alpha: 0.5)
   Color get glowColor {
@@ -49,45 +52,80 @@ class HomeViewModel extends ChangeNotifier {
     return baseColor.withValues(alpha: 0.5);
   }
 
-  bool get finalButtonVisible => _isResultVisible && _hasSelection && !_isModalLoading;
+  bool get finalButtonVisible {
+  // 공통 조건: 결과창이 떠있고 로딩 중이 아닐 때
+  if (!_isResultVisible || _isModalLoading) return false;
 
-  void toggleType(SearchType type) {
-    if (_selectedType != SearchType.none && _selectedType != type) {
-      searchController.clear();
-      _isResultVisible = false;
-      _isRealDataLoaded = false;
+  if (_selectedType == SearchType.ingredients) {
+    // 1. 재료 검색 모드: 요리 카드(_selectedDishName)가 선택되었을 때 활성화
+    return _selectedDishName != null;
+  } else {
+    // 2. 요리 검색 모드: 재료 칩(_hasSelection)이 하나라도 선택되었을 때 활성화
+    return _hasSelection;
+  }
+}
+
+  void toggleDishSelection(String dishName) {
+    if (_selectedDishName == dishName) {
+      _selectedDishName = null; 
+    } else {
+      _selectedDishName = dishName;
     }
-    _selectedType = (_selectedType == type) ? SearchType.none : type;
     notifyListeners();
   }
+
+Future<void> toggleType(SearchType type) async {
+  if (_selectedType != SearchType.none && _selectedType != type) {
+    searchController.clear();
+    _isResultVisible = false;
+    _isRealDataLoaded = false;
+
+    if (_selectedIngredients.isNotEmpty) {
+      final int count = _selectedIngredients.length;
+      for (int i = count - 1; i >= 0; i--) {
+        _selectedIngredients.removeAt(i);
+        notifyListeners(); 
+        await Future.delayed(const Duration(milliseconds: 50)); 
+      }
+    }
+  }
+  
+  _selectedType = (_selectedType == type) ? SearchType.none : type;
+  notifyListeners();
+}
 
   void submitSearch(String value) {
-  if (value.isEmpty) return;
-
-  // 1. "재료" 모드일 때 -> 태그로 추가 (결과창 띄우기 X)
+  //  재료 모드일 때 로직 분기
   if (_selectedType == SearchType.ingredients) {
-    addIngredient(value); 
-  } 
-  // 2. "요리" 모드이거나 기타 상황 -> 실제 검색 결과 실행
-  else {
-    _triggerSearchResult();
+    if (value.isNotEmpty) {
+      addIngredient(value); 
+    } else if (_selectedIngredients.isNotEmpty) {
+      _triggerSearchResult(); 
+    }
+  } else if (_selectedType == SearchType.recipe) {
+    if (value.isNotEmpty) {
+      _triggerSearchResult(); 
+    }
   }
 }
 
-// [추가] 실제 검색 결과(모달)를 띄우는 로직을 분리
+
 void _triggerSearchResult() {
-  _isResultVisible = true;
-  _isModalLoading = true;
-  _isRealDataLoaded = false;
-  notifyListeners();
-
-  Future.delayed(const Duration(milliseconds: 1200), () {
-    _isModalLoading = false;
-    _isRealDataLoaded = true;
+    _isResultVisible = true;
+    _isModalLoading = true;
+    _isRealDataLoaded = false;
+    
+    _hasSelection = false; 
+    _selectedDishName = null; // ✨ 요리 선택 초기화
+    
     notifyListeners();
-  });
-}
 
+    Future.delayed(const Duration(milliseconds: 1200), () {
+      _isModalLoading = false;
+      _isRealDataLoaded = true;
+      notifyListeners();
+    });
+}
   void updateSelection(bool has) {
     _hasSelection = has;
     notifyListeners();
