@@ -20,6 +20,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final GlobalKey<SequentialBounceWrapperState> _leftKey = GlobalKey();
   final GlobalKey<SequentialBounceWrapperState> _rightKey = GlobalKey();
   bool _isYoutubeLayerActive = false;
+  bool _isButtonSlidingDown = false; // 버튼이 아래로 내려가는 중인가?
+  bool _isButtonPressed = false;
 
   @override
   void initState() {
@@ -32,6 +34,29 @@ class _HomeScreenState extends State<HomeScreen> {
     _vm.dispose();
     super.dispose();
   }
+
+  void _handleFloatingButtonTap() async {
+    // 1. 눌림 액션 (작아짐)
+    setState(() => _isButtonPressed = true);
+    await Future.delayed(const Duration(milliseconds: 100)); // 0.1초
+
+    // 2. 복구 액션 (원래 크기)
+    setState(() => _isButtonPressed = false);
+    await Future.delayed(const Duration(milliseconds: 100)); // 0.1초
+
+    // 3. 아래로 슬라이드 다운
+    setState(() => _isButtonSlidingDown = true);
+    await Future.delayed(const Duration(milliseconds: 500)); // 0.5초 (슬라이드 시간)
+
+    // 4. 유튜브 레이어 활성화
+    if (mounted) {
+      setState(() {
+        _isYoutubeLayerActive = true;
+        _isButtonSlidingDown = false; // 초기화
+      });
+    }
+  }
+  
 
   @override
   Widget build(BuildContext context) {
@@ -76,12 +101,13 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           _buildResultLayer(sheetHeight),
-          YoutubeRecommendationLayer(
-            onClose: () {
-              // 패널이 완전히 닫히고 토글이 비활성화될 때 호출됨
-              setState(() => _isYoutubeLayerActive = false);
-            },
-          ),
+          if (_isYoutubeLayerActive)
+            YoutubeRecommendationLayer(
+              onClose: () {
+                // 레이어 내부에서 삭제 애니메이션이 끝나면 호출됨
+                setState(() => _isYoutubeLayerActive = false);
+              },
+            ),
           if (!_isYoutubeLayerActive) // 유튜브 레이어가 활성화되면 버튼 숨김
             _buildFloatingButtonLayer(),
         ],
@@ -180,32 +206,31 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildFloatingButtonLayer() {
+    // 버튼이 보이는 조건: 뷰모델 visible AND 슬라이드 다운 전
+    bool showPosition = _vm.finalButtonVisible && !_isButtonSlidingDown;
+
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 500),
-      curve: Curves.easeOutBack,
-      bottom: _vm.finalButtonVisible ? 30 : -100, 
+      curve: showPosition ? Curves.easeOutBack : Curves.easeInOut,
+      // 클릭 시퀀스가 끝나고 _isButtonSlidingDown이 true가 되면 -100으로 내려감
+      bottom: showPosition ? 30 : -100, 
       left: 0,
       right: 0,
       child: Center(
-      child: AnimatedScale(
-        duration: const Duration(milliseconds: 400),
-        scale: _vm.finalButtonVisible ? 1.0 : 0.0,
-        curve: Curves.easeOutBack,
-        child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 300),
-          opacity: _vm.finalButtonVisible ? 1.0 : 0.0,
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 100),
+          scale: _isButtonPressed ? 0.9 : 1.0, // 눌리면 0.9배, 아니면 1.0배
+          curve: Curves.easeInOut,
           child: _buildFloatingButtonContent(),
         ),
       ),
-    ),
     );
   }
 
   Widget _buildFloatingButtonContent() {
     const Color youtubeRed = Color(0xFFFF0000);
     return GestureDetector(
-    onTap: _vm.finalButtonVisible ? () {
-    } : null,
+    onTap: _vm.finalButtonVisible ? _handleFloatingButtonTap : null,
     child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
       decoration: BoxDecoration(
