@@ -95,18 +95,26 @@ class _HomeSearchBarState extends State<HomeSearchBar> with TickerProviderStateM
   }
 
   void _handleTap() {
-    if (widget.controller.text.isNotEmpty) {
+    // ✨ 텍스트 유무가 아니라 '검색 가능 상태'인지 확인
+    final bool isIngredientMode = widget.vm.selectedType == SearchType.ingredients;
+    final bool hasChips = widget.vm.selectedIngredients.isNotEmpty;
+    final bool hasText = widget.controller.text.isNotEmpty;
+
+    bool canSearch = isIngredientMode ? hasChips : hasText;
+
+    if (canSearch) {
       HapticFeedback.lightImpact();
       setState(() => _buttonScale = 0.92);
       
       Future.delayed(const Duration(milliseconds: 100), () {
         if (mounted) {
           setState(() => _buttonScale = 1.0);
+        
           widget.onSubmitted(widget.controller.text);
         }
       });
-    } else if (widget.selectedType == SearchType.none) {
-      _triggerWarning(); // 📍 글자가 없고 타입도 없을 때 실행
+    } else if (widget.selectedType == SearchType.none || !canSearch) {
+      _triggerWarning(); 
     }
   }
 
@@ -118,6 +126,13 @@ class _HomeSearchBarState extends State<HomeSearchBar> with TickerProviderStateM
         
         final bool hasType = widget.vm.selectedType != SearchType.none;
         final bool hasText = widget.controller.text.isNotEmpty;
+        final bool hasChips = widget.vm.selectedIngredients.isNotEmpty;
+        bool isSearchEnabled = false;
+        if (widget.vm.selectedType == SearchType.ingredients) {
+          isSearchEnabled = hasChips; // 재료 모드: 칩이 있으면 활성화 (글자 없어도 됨)
+        } else if (widget.vm.selectedType == SearchType.recipe) {
+          isSearchEnabled = hasText;  // 요리 모드: 글자가 있어야 활성화
+        }
         final Color activeColor = widget.vm.selectedType == SearchType.ingredients 
             ? AppColors.primaryGreen 
             : AppColors.primaryOrange;
@@ -215,7 +230,7 @@ class _HomeSearchBarState extends State<HomeSearchBar> with TickerProviderStateM
                               ...widget.vm.selectedIngredients.map((ingredient) => AnimatedTag(
                                     key: ValueKey(ingredient),
                                     label: ingredient,
-                                    color: activeColor,
+                                    color: AppColors.primaryGreen,
                                     onRemove: () => widget.vm.removeIngredient(ingredient),
                                   )),
 
@@ -243,7 +258,11 @@ class _HomeSearchBarState extends State<HomeSearchBar> with TickerProviderStateM
                                     ),
                                     decoration: InputDecoration(
                                       hintText: widget.vm.selectedIngredients.isEmpty 
-                                          ? (!hasType ? "모드를 선택해주세요" : "재료를 입력해주세요")
+                                          ? (!hasType 
+                                              ? "모드를 선택해주세요" 
+                                              : (widget.vm.selectedType == SearchType.ingredients 
+                                                  ? "재료를 입력해주세요" 
+                                                  : "음식을 입력해주세요"))
                                           : "",
                                       hintStyle: TextStyle(
                                         color: _isWarning ? Colors.redAccent : AppColors.textGrey,
@@ -293,12 +312,12 @@ class _HomeSearchBarState extends State<HomeSearchBar> with TickerProviderStateM
                                 duration: const Duration(milliseconds: 200),
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: hasText 
+                                  color: isSearchEnabled 
                                       ? activeColor 
                                       : (_isWarning 
                                           ? Colors.redAccent.withValues(alpha: 0.2) 
                                           : Colors.grey.withValues(alpha: 0.2)),
-                                  borderRadius: BorderRadius.circular(10),
+                                    borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: const Icon(
                                   Icons.arrow_forward_rounded, 
@@ -430,6 +449,7 @@ class _AnimatedTagState extends State<AnimatedTag> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
+    
     
     return ScaleTransition(
       scale: _scaleAnimation,
