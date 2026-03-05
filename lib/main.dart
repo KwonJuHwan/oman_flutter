@@ -1,16 +1,11 @@
 import 'package:flutter/material.dart';
 import 'core/theme/app_colors.dart';
-import 'features/home/presentation/screens/home_screen.dart';
-import 'package:device_preview/device_preview.dart'; 
-import 'package:flutter/foundation.dart';
+import 'features/auth/presentation/screens/login_screen.dart';
+
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
-  runApp(
-    DevicePreview(
-      enabled: !kReleaseMode, 
-      builder: (context) => const RecipeApp(), 
-    ),
-  );
+  runApp(const RecipeApp());
 }
 
 class RecipeApp extends StatelessWidget {
@@ -19,9 +14,7 @@ class RecipeApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      locale: DevicePreview.locale(context), 
-      builder: DevicePreview.appBuilder,
-      
+      navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'Recipe App',
       theme: ThemeData(
@@ -34,7 +27,7 @@ class RecipeApp extends StatelessWidget {
         scaffoldBackgroundColor: AppColors.background,
         primarySwatch: Colors.orange,
       ),
-      home: const HomeScreen(),
+      home: const LoginScreen(),
     );
   }
 }
