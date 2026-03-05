@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // HapticFeedback
 import 'package:shimmer/shimmer.dart';
+import 'package:dio/dio.dart';
 import 'dart:math' as math;
+
+import '../../domain/models/video_recommendation_model.dart'; // 추가
+import '../../domain/repositories/recipe_repository.dart'; // 추가
+import '../../../../core/network/token_interceptor.dart'; // 경로에 맞게 수정
 
 // -----------------------------------------------------------------------------
 // 1. 영상 데이터 모델
@@ -26,9 +31,16 @@ class YoutubeVideo {
 // 2. 메인 위젯
 // -----------------------------------------------------------------------------
 class YoutubeRecommendationLayer extends StatefulWidget {
-  final VoidCallback onClose; 
+  final VoidCallback onClose;
+  final String culinaryName; 
+  final List<int> ingredientIds; 
 
-  const YoutubeRecommendationLayer({super.key, required this.onClose});
+  const YoutubeRecommendationLayer({
+    super.key, 
+    required this.onClose,
+    required this.culinaryName,
+    required this.ingredientIds,
+  });
 
   @override
   State<YoutubeRecommendationLayer> createState() =>
@@ -63,10 +75,9 @@ class _YoutubeRecommendationLayerState extends State<YoutubeRecommendationLayer>
   final Color _youtubeRed = const Color(0xFFFF4E45);
   final Color _white = Colors.white;
 
-  // 더미 데이터
-  final _bestMatch = YoutubeVideo(title: "백종원의 김치찌개, 이것만 알면 끝!", channelName: "백종원의 요리비책", thumbnailUrl: "assets/images/kimchi_stew_thumb.jpg", views: "조회수 500만회", publishedAt: "2년 전");
-  final List<YoutubeVideo> _popularVideos = List.generate(5, (index) => YoutubeVideo(title: "초간단 5분 김치찌개 레시피 (자취생 필수)", channelName: "자취요리왕", thumbnailUrl: "assets/images/thumb_$index.jpg", views: "조회수 ${10 + index}만회", publishedAt: "${index + 1}개월 전"));
-
+  VideoRecommendationResponseDto? _videoData;
+  late final RecipeRepository _recipeRepository;
+  
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -80,6 +91,10 @@ class _YoutubeRecommendationLayerState extends State<YoutubeRecommendationLayer>
   @override
   void initState() {
     super.initState();
+
+    final dio = Dio();
+    dio.interceptors.add(TokenInterceptor(dio));
+    _recipeRepository = RecipeRepository(dio);
     
     // -------------------------------------------------------------------------
     // A. 슬라이드 애니메이션 (물리 액션)
@@ -137,6 +152,8 @@ class _YoutubeRecommendationLayerState extends State<YoutubeRecommendationLayer>
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) setState(() => _isLoading = false);
     });
+
+    _fetchVideoData();
   }
 
   @override
@@ -181,6 +198,20 @@ class _YoutubeRecommendationLayerState extends State<YoutubeRecommendationLayer>
 
   void _onVerticalDragEnd(DragEndDetails details) {
     setState(() => _isDragging = false);
+  }
+
+  Future<void> _fetchVideoData() async {
+    final data = await _recipeRepository.getRecommendedVideos(
+      culinaryName: widget.culinaryName,
+      ingredientIds: widget.ingredientIds,
+    );
+
+    if (mounted) {
+      setState(() {
+        _videoData = data;
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -386,28 +417,125 @@ class _YoutubeRecommendationLayerState extends State<YoutubeRecommendationLayer>
   }
 
   Widget _buildContent() {
+    // 데이터가 없을 경우 에러 처리
+    if (_videoData == null) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.only(top: 100),
+          child: Text("데이터를 불러오지 못했습니다.", style: TextStyle(color: Colors.white)),
+        ),
+      );
+    }
+
+    final matchVideos = _videoData!.matchVideos;
+    final popularVideos = _videoData!.popularVideos;
+
     return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(), padding: const EdgeInsets.fromLTRB(24, 80, 24, 24),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text("Best Match", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, fontFamily: 'Pretendard', color: Colors.white)), const SizedBox(height: 16), _buildBestMatchCard(), const SizedBox(height: 32),
-          const Text("Popular", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, fontFamily: 'Pretendard', color: Colors.white)), const SizedBox(height: 16),
-          ListView.separated(padding: EdgeInsets.zero, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), itemCount: _popularVideos.length, separatorBuilder: (context, index) => const SizedBox(height: 16), itemBuilder: (context, index) => _buildPopularItem(_popularVideos[index])),
-        ]),
+      physics: const BouncingScrollPhysics(), 
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 80),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, 
+        children: [
+          const Text("Best Match", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)), 
+          const SizedBox(height: 16), 
+          
+          // ✨ Best Match 영역 렌더링 (리스트 중 첫 번째 항목 사용)
+          if (matchVideos.isNotEmpty)
+            _buildBestMatchCard(matchVideos.first)
+          else
+            const Text("매칭된 영상이 없습니다.", style: TextStyle(color: Colors.grey)),
+            
+          const SizedBox(height: 32),
+          
+          const Text("Popular", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)), 
+          const SizedBox(height: 16),
+          
+          // ✨ Popular 영역 렌더링
+          if (popularVideos.isNotEmpty)
+            ListView.separated(
+              padding: EdgeInsets.zero, 
+              shrinkWrap: true, 
+              physics: const NeverScrollableScrollPhysics(), 
+              itemCount: popularVideos.length, 
+              separatorBuilder: (context, index) => const SizedBox(height: 16), 
+              itemBuilder: (context, index) => _buildPopularItem(popularVideos[index]),
+            )
+          else
+            const Text("인기 영상이 없습니다.", style: TextStyle(color: Colors.grey)),
+        ],
+      ),
     );
   }
 
-  Widget _buildBestMatchCard() {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(height: 200, width: double.infinity, decoration: BoxDecoration(color: Colors.grey[800], borderRadius: BorderRadius.circular(20), image: const DecorationImage(image: AssetImage('assets/images/logo.png'), fit: BoxFit.cover)),
-          child: Stack(children: [Positioned(bottom: 12, left: 12, child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: Colors.black.withOpacity(0.7), borderRadius: BorderRadius.circular(20)), child: Text("#Best Pick", style: TextStyle(color: _youtubeRed, fontWeight: FontWeight.bold, fontSize: 12))))]),
-        ), const SizedBox(height: 12), const Text("백종원의 김치찌개, 이것만 알면 끝!", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, height: 1.2, color: Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis), const SizedBox(height: 4), Text("${_bestMatch.channelName} • ${_bestMatch.views}", style: TextStyle(fontSize: 14, color: Colors.grey[400])),
-      ]);
+  Widget _buildBestMatchCard(VideoResponseDto video) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start, 
+      children: [
+        Container(
+          height: 200, 
+          width: double.infinity, 
+          decoration: BoxDecoration(
+            color: Colors.grey[800], 
+            borderRadius: BorderRadius.circular(20), 
+            // 썸네일 URL 연동 (네트워크 이미지)
+            image: DecorationImage(image: NetworkImage(video.thumbnail), fit: BoxFit.cover)
+          ),
+          child: Stack(
+            children: [
+              Positioned(
+                bottom: 12, left: 12, 
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), 
+                  decoration: BoxDecoration(color: Colors.black.withOpacity(0.7), borderRadius: BorderRadius.circular(20)), 
+                  child: Text("#Best Pick", style: TextStyle(color: _youtubeRed, fontWeight: FontWeight.bold, fontSize: 12))
+                )
+              )
+            ]
+          ),
+        ), 
+        const SizedBox(height: 12), 
+        Text(video.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, height: 1.2, color: Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis), 
+        const SizedBox(height: 4), 
+        Text("${video.channel} • 조회수 ${video.count}회", style: TextStyle(fontSize: 14, color: Colors.grey[400])),
+      ]
+    );
   }
 
-  Widget _buildPopularItem(YoutubeVideo video) {
-    return Row(children: [
-        Container(width: 100, height: 70, decoration: BoxDecoration(color: Colors.grey[800], borderRadius: BorderRadius.circular(12), image: const DecorationImage(image: AssetImage('assets/images/logo.png'), fit: BoxFit.cover))), const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(video.title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis), const SizedBox(height: 4), Row(children: [Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: _youtubeRed.withOpacity(0.2), borderRadius: BorderRadius.circular(4)), child: Text("#Yummy", style: TextStyle(fontSize: 10, color: _youtubeRed, fontWeight: FontWeight.bold))), const SizedBox(width: 6), Text(video.channelName, style: TextStyle(fontSize: 12, color: Colors.grey[400]))])])),
-      ]);
+  Widget _buildPopularItem(VideoResponseDto video) {
+    return Row(
+      children: [
+        Container(
+          width: 100, height: 70, 
+          decoration: BoxDecoration(
+            color: Colors.grey[800], 
+            borderRadius: BorderRadius.circular(12), 
+            image: DecorationImage(image: NetworkImage(video.thumbnail), fit: BoxFit.cover)
+          )
+        ), 
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start, 
+            children: [
+              Text(video.title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis), 
+              const SizedBox(height: 4), 
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), 
+                    decoration: BoxDecoration(color: _youtubeRed.withOpacity(0.2), borderRadius: BorderRadius.circular(4)), 
+                    child: Text("#Yummy", style: TextStyle(fontSize: 10, color: _youtubeRed, fontWeight: FontWeight.bold))
+                  ), 
+                  const SizedBox(width: 6), 
+                  Expanded(
+                    child: Text(video.channel, style: TextStyle(fontSize: 12, color: Colors.grey[400]), overflow: TextOverflow.ellipsis)
+                  )
+                ]
+              )
+            ]
+          )
+        ),
+      ]
+    );
   }
 }

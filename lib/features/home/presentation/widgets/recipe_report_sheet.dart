@@ -3,6 +3,7 @@ import 'package:shimmer/shimmer.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/models/recipe_mock_data.dart';
 import '../../domain/models/ingredient_search_result.dart';
+import '../../domain/models/recipe_models.dart';
 
 class RecipeReportSheet extends StatefulWidget {
   final bool isLoading;
@@ -11,6 +12,8 @@ class RecipeReportSheet extends StatefulWidget {
   final Function(String) onDishSelected;
   final Function(bool) onSelectionChanged;
   final String? selectedDishName;
+  final CulinaryIngredientGroupResponse? recipeDetailData;     // ✨ 추가
+  final List<CulinaryRecommendationDto> ingredientResults;
 
   const RecipeReportSheet({
     super.key,
@@ -20,6 +23,8 @@ class RecipeReportSheet extends StatefulWidget {
     required this.onDishSelected,
     required this.onSelectionChanged,
     this.selectedDishName,
+    this.recipeDetailData,
+    this.ingredientResults = const [],
   });
 
   @override
@@ -54,24 +59,6 @@ void _toggleIngredient(String name) {
 
   @override
   Widget build(BuildContext context) {
-    final recipeDetailData = RecipeMockData.kimchiStew;
-    final ingredientResults = [
-    IngredientSearchResult(
-      dishName: "김치찌개", 
-      status: IngredientMatchStatus.match, 
-      targetIngredients: []
-    ),
-    IngredientSearchResult(
-      dishName: "된장찌개", 
-      status: IngredientMatchStatus.insufficient, 
-      targetIngredients: ["두부", "팽이버섯"]
-    ),
-    IngredientSearchResult(
-      dishName: "부대찌개", 
-      status: IngredientMatchStatus.surplus, 
-      targetIngredients: ["스팸", "소시지"]
-    ),
-  ];
 
     return Container(
       width: double.infinity,
@@ -99,20 +86,19 @@ void _toggleIngredient(String name) {
           
           Expanded(
           child: widget.isLoading
-              ? _buildLoadingSkeleton()
-              : !widget.isResultVisible
-                  ? const SizedBox.expand()
-                  // ✨ 조건부 렌더링: 재료 검색 모드인지에 따라 위젯 분기
-                  : widget.isIngredientSearch 
-                      ? _buildIngredientSearchResultList(ingredientResults) // 리스트 뷰 (재료 검색 결과)
-                      : _buildMainContent(recipeDetailData),               // 상세 뷰 (요리 검색 결과)
+                ? _buildLoadingSkeleton()
+                : !widget.isResultVisible
+                    ? const SizedBox.expand()
+                    : widget.isIngredientSearch 
+                        ? _buildIngredientSearchResultList(widget.ingredientResults) // ✨ 실제 데이터 전달
+                        : _buildMainContent(widget.recipeDetailData),             // 상세 뷰 (요리 검색 결과)
           ),
         ],
       ),
     );
   }
 
-  Widget _buildIngredientSearchResultList(List<IngredientSearchResult> results) {
+  Widget _buildIngredientSearchResultList(List<CulinaryRecommendationDto> results) {
     return ListView.separated(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
       itemCount: results.length,
@@ -122,42 +108,38 @@ void _toggleIngredient(String name) {
   }
 
   // 개별 요리 결과 카드
-  Widget _buildRecipeCard(IngredientSearchResult result) {
+Widget _buildRecipeCard(CulinaryRecommendationDto result) {
     String statusText = "";
     Color statusColor = Colors.grey;
-    final bool isCardSelected = widget.selectedDishName == result.dishName;
+    
+    // 이전 더미의 result.dishName 대신 실제 DTO의 result.name 사용
+    final bool isCardSelected = widget.selectedDishName == result.name;
 
-    switch (result.status) {
-      case IngredientMatchStatus.match:
-        statusText = "완벽한 조합";
-        statusColor = AppColors.primaryGreen;
-        break;
-      case IngredientMatchStatus.insufficient:
-        statusText = "재료가 조금 더 필요해요";
-        statusColor = Colors.redAccent; // 👈 상태 텍스트도 빨간색으로 변경
-        break;
-      case IngredientMatchStatus.surplus:
-        statusText = "이 재료가 남아요";
-        statusColor = AppColors.textGrey;
-        break;
+    // 백엔드 Enum 상태 문자열에 맞게 조건 분기 (필요시 백엔드 값에 맞춰 대문자 수정)
+    final String statusStr = result.status.toUpperCase();
+    if (statusStr.contains("MATCH") || statusStr.contains("PERFECT")) {
+      statusText = "완벽한 조합";
+      statusColor = AppColors.primaryGreen;
+    } else if (statusStr.contains("INSUFFICIENT") || statusStr.contains("LACK")) {
+      statusText = "재료가 조금 더 필요해요";
+      statusColor = Colors.redAccent;
+    } else {
+      statusText = "이 재료가 남아요";
+      statusColor = AppColors.textGrey;
     }
 
     return GestureDetector(
-      onTap: () => widget.onDishSelected(result.dishName),
+      onTap: () => widget.onDishSelected(result.name), // dishName -> name
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          // ✨ 선택 시: 아주 옅은 초록색 배경
           color: isCardSelected 
               ? AppColors.primaryGreen.withValues(alpha: 0.08) 
               : Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            // ✨ 선택 시: 초록색 테두리
-            color: isCardSelected 
-                ? AppColors.primaryGreen 
-                : const Color(0xFFE2E8F0),
+            color: isCardSelected ? AppColors.primaryGreen : const Color(0xFFE2E8F0),
             width: isCardSelected ? 1.5 : 1.0,
           ),
         ),
@@ -168,12 +150,11 @@ void _toggleIngredient(String name) {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  result.dishName,
+                  result.name, // dishName -> name
                   style: TextStyle(
                     fontSize: 18, 
                     fontWeight: FontWeight.bold, 
                     fontFamily: 'Pretendard',
-                    // 선택 시 텍스트 색상도 살짝 강조
                     color: isCardSelected ? AppColors.primaryGreen : Colors.black87,
                   ),
                 ),
@@ -187,19 +168,17 @@ void _toggleIngredient(String name) {
               ],
             ),
             
-            if (result.targetIngredients.isNotEmpty) ...[
+            // 이전 더미의 result.targetIngredients 대신 실제 DTO의 result.ingredients 사용
+            if (result.ingredients.isNotEmpty) ...[
               const SizedBox(height: 16),
-              // 재료 칩 영역
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: result.targetIngredients.map((ing) {
-                  // 칩 내부 상태 확인
-                  final bool isChipSelected = _selectedIngredients.contains(ing);
-                  final bool isInsufficientMode = result.status == IngredientMatchStatus.insufficient;
-                  final bool isSurplusMode = result.status == IngredientMatchStatus.surplus;
-
-                  // 색상 로직 (이전 요청사항 반영)
+                children: result.ingredients.map((ing) {
+                  // ✨ 실제 DTO는 객체이므로 ing.name으로 접근해야 합니다.
+                  final bool isChipSelected = _selectedIngredients.contains(ing.name);
+                  
+                  // 상태별 컬러 로직 적용
                   Color bgColor;
                   Color textColor;
                   Color borderColor;
@@ -209,13 +188,11 @@ void _toggleIngredient(String name) {
                   Color surplusDefault = AppColors.primaryGreen.withValues(alpha: 0.1);
                   Color surplusDefaultText = AppColors.primaryGreen;
 
-                  if (isInsufficientMode) {
-                    // 부족해요: 기본(빨강) -> 클릭(초록)
+                  if (statusStr.contains("INSUFFICIENT") || statusStr.contains("LACK")) {
                     bgColor = isChipSelected ? AppColors.primaryGreen : insufficientDefault;
                     textColor = isChipSelected ? Colors.white : insufficientDefaultText;
                     borderColor = isChipSelected ? AppColors.primaryGreen : Colors.redAccent.withValues(alpha: 0.2);
-                  } else if (isSurplusMode) {
-                    // 남아요: 기본(초록) -> 클릭(빨강)
+                  } else if (statusStr.contains("SURPLUS")) {
                     bgColor = isChipSelected ? insufficientDefault : surplusDefault;
                     textColor = isChipSelected ? insufficientDefaultText : surplusDefaultText;
                     borderColor = isChipSelected ? Colors.redAccent.withValues(alpha: 0.2) : AppColors.primaryGreen.withValues(alpha: 0.2);
@@ -225,9 +202,8 @@ void _toggleIngredient(String name) {
                     borderColor = Colors.transparent;
                   }
 
-                  // ✨ [자식 제스처] 칩 클릭 시 -> 재료 토글만 수행 (부모 이벤트 차단됨)
                   return GestureDetector(
-                    onTap: () => _toggleIngredient(ing),
+                    onTap: () => _toggleIngredient(ing.name), // ing -> ing.name
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -237,11 +213,11 @@ void _toggleIngredient(String name) {
                         border: Border.all(color: borderColor),
                       ),
                       child: Text(
-                        ing,
+                        ing.name, // ing -> ing.name
                         style: TextStyle(
                           fontSize: 12,
                           color: textColor,
-                          fontWeight: (isChipSelected || isSurplusMode || isInsufficientMode)
+                          fontWeight: (isChipSelected || statusStr.contains("SURPLUS") || statusStr.contains("INSUFFICIENT"))
                               ? FontWeight.bold
                               : FontWeight.normal,
                           fontFamily: 'Pretendard',
@@ -257,37 +233,39 @@ void _toggleIngredient(String name) {
       ),
     );
   }
-
   // 실제 검색 결과 내용
-  Widget _buildMainContent(dynamic data) {
+  Widget _buildMainContent(CulinaryIngredientGroupResponse? data) {
+    if (data == null) return const Center(child: Text("데이터를 불러오지 못했습니다."));
+
+    // DTO 리스트에서 문자열 이름만 추출
+    final essential = data.mainIngredients.map((e) => e.ingredientName).toList();
+    final sub = data.subIngredients.map((e) => e.ingredientName).toList();
+    final seasonings = data.otherIngredients.map((e) => e.ingredientName).toList();
+
     return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(), // 부드러운 스크롤감
+      physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            data.dishName,
-            style: const TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.bold,
-              fontFamily: 'Pretendard',
-            ),
-          ),
+          Text(widget.selectedDishName ?? "", style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
           const SizedBox(height: 32),
           
-          _buildBlock("핵심 재료", data.essential, _isEssentialOpen,
-              () => setState(() => _isEssentialOpen = !_isEssentialOpen)),
-          const SizedBox(height: 12),
+          if (essential.isNotEmpty) ...[
+            _buildBlock("핵심 재료", essential, _isEssentialOpen, () => setState(() => _isEssentialOpen = !_isEssentialOpen)),
+            const SizedBox(height: 12),
+          ],
           
-          _buildBlock("부 재료", data.subIngredients, _isSubOpen,
-              () => setState(() => _isSubOpen = !_isSubOpen)),
-          const SizedBox(height: 12),
+          if (sub.isNotEmpty) ...[
+            _buildBlock("부 재료", sub, _isSubOpen, () => setState(() => _isSubOpen = !_isSubOpen)),
+            const SizedBox(height: 12),
+          ],
           
-          _buildBlock("선택 재료", data.seasonings, _isSeasoningOpen,
-              () => setState(() => _isSeasoningOpen = !_isSeasoningOpen)),
+          if (seasonings.isNotEmpty) ...[
+            _buildBlock("선택 재료", seasonings, _isSeasoningOpen, () => setState(() => _isSeasoningOpen = !_isSeasoningOpen)),
+          ],
           
-          const SizedBox(height: 140), // 하단 버튼 여백 확보
+          const SizedBox(height: 140),
         ],
       ),
     );

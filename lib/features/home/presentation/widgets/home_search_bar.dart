@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'dart:ui';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/enums/search_type.dart';
+import '../../domain/models/recipe_models.dart';
 import 'package:oman_fe/features/home/presentation/screens/home_viewmodel.dart';
 
 class HomeSearchBar extends StatefulWidget {
@@ -11,7 +12,7 @@ class HomeSearchBar extends StatefulWidget {
   final TextEditingController controller;
   final VoidCallback onClear;
   final Function(String) onSubmitted;
-  final VoidCallback? onDisabledTap; // 📍 추가: 비활성화 상태에서 클릭 시 호출
+  final VoidCallback? onDisabledTap; 
 
   const HomeSearchBar({
     super.key,
@@ -157,14 +158,20 @@ class _HomeSearchBarState extends State<HomeSearchBar> with TickerProviderStateM
               }
             },
 
-            // ✨ [신규] 텍스트가 있을 때 길게 누르면 -> 즉시 칩으로 변환!
+ 
             onLongPress: () {
-              // 1. 텍스트가 있고 & 재료 모드일 때만 동작
               if (hasText && widget.vm.selectedType == SearchType.ingredients) {
-                HapticFeedback.mediumImpact(); // '톡' 하는 진동 피드백
+                final text = widget.controller.text;
+            
+                final matchedDto = widget.vm.filteredCandidates.where((e) => e.name == text).firstOrNull;
                 
-                // 2. 현재 입력된 텍스트를 칩으로 추가 (ViewModel이 알아서 텍스트 지워줌)
-                widget.vm.addIngredient(widget.controller.text);
+                if (matchedDto != null) {
+                  HapticFeedback.mediumImpact();
+                  widget.vm.addIngredient(matchedDto);
+                } else {
+     
+                  _triggerWarning(); 
+                }
               }
             },
 
@@ -228,8 +235,8 @@ class _HomeSearchBarState extends State<HomeSearchBar> with TickerProviderStateM
                             crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
                               ...widget.vm.selectedIngredients.map((ingredient) => AnimatedTag(
-                                    key: ValueKey(ingredient),
-                                    label: ingredient,
+                                    key: ValueKey(ingredient.id), 
+                                    label: ingredient.name,
                                     color: AppColors.primaryGreen,
                                     onRemove: () => widget.vm.removeIngredient(ingredient),
                                   )),
@@ -425,7 +432,6 @@ class _AnimatedTagState extends State<AnimatedTag> with SingleTickerProviderStat
       duration: const Duration(milliseconds: 250),
     );
 
-    // 📍 easeOutBack: 약간 커졌다가 줄어드는 "블록 생성" 느낌의 탄성 효과
     _scaleAnimation = CurvedAnimation(
       parent: _controller,
       curve: Curves.easeOutBack, 
@@ -440,7 +446,6 @@ class _AnimatedTagState extends State<AnimatedTag> with SingleTickerProviderStat
     super.dispose();
   }
 
-  // 📍 삭제 버튼 클릭 시: 작아지는 애니메이션 후 실제 데이터 삭제
   void _handleRemove() {
     _controller.reverse().then((_) {
       widget.onRemove();
