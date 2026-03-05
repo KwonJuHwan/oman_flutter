@@ -7,6 +7,7 @@ import '../widgets/home_category_button.dart';
 import '../widgets/recipe_report_sheet.dart';
 import '../widgets/yotube_recommendation_layer.dart';
 import 'home_viewmodel.dart';
+import '../../domain/models/recipe_models.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,7 +21,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final GlobalKey<SequentialBounceWrapperState> _leftKey = GlobalKey();
   final GlobalKey<SequentialBounceWrapperState> _rightKey = GlobalKey();
   bool _isYoutubeLayerActive = false;
-  bool _isButtonSlidingDown = false; // 버튼이 아래로 내려가는 중인가?
+  bool _isButtonSlidingDown = false; 
   bool _isButtonPressed = false;
 
   @override
@@ -103,8 +104,9 @@ class _HomeScreenState extends State<HomeScreen> {
           _buildResultLayer(sheetHeight),
           if (_isYoutubeLayerActive)
             YoutubeRecommendationLayer(
+              culinaryName: _vm.selectedDishName ?? "김치찌개", 
+              ingredientIds: _vm.selectedIngredientIds, 
               onClose: () {
-                // 레이어 내부에서 삭제 애니메이션이 끝나면 호출됨
                 setState(() => _isYoutubeLayerActive = false);
               },
             ),
@@ -198,6 +200,8 @@ class _HomeScreenState extends State<HomeScreen> {
               selectedDishName: _vm.selectedDishName,
               onDishSelected: (dishName) => _vm.toggleDishSelection(dishName),
               onSelectionChanged: (hasSelection) => _vm.updateSelection(hasSelection),
+              recipeDetailData: _vm.recipeDetailData,
+              ingredientResults: _vm.ingredientSearchResults,
             ),
           ],
         ),
@@ -269,7 +273,6 @@ class _HomeScreenState extends State<HomeScreen> {
   // 📍 [수정] 요리 모드 대응 및 최근 요리 검색 섹션 추가
   Widget _buildSearchSuggestions() {
     final bool isIngredientMode = _vm.selectedType == SearchType.ingredients;
-    final bool isRecipeMode = _vm.selectedType == SearchType.recipe;
     final bool hasType = _vm.selectedType != SearchType.none;
     final bool hasRecommendations = isIngredientMode && 
         _vm.searchController.text.isNotEmpty && 
@@ -284,7 +287,7 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
               width: double.infinity,
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.95),
+                color: Colors.white.withValues(alpha: 0.95),// 이전 지시에 따라 withOpacity 또는 withValues 사용
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
@@ -298,7 +301,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // 1. 추천 재료 (재료 모드에서만 노출)
+                  // 1. 추천 재료 (자동완성)
                   if (isIngredientMode && hasRecommendations) ...[
                     const Text(
                       "추천 재료",
@@ -312,11 +315,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       spacing: 8,
                       runSpacing: 8,
                       children: _vm.filteredCandidates
-                          .map((name) => _buildSuggestionChip(name, 
-                              isRecommended: true, 
-                              overrideColor: isIngredientMode 
-                                ? AppColors.primaryGreen 
-                                : AppColors.primaryOrange
+                          .map((dto) => _buildSuggestionChip(
+                                dto, 
+                                isRecommended: true, 
+                                overrideColor: AppColors.primaryGreen,
+                                isRecent: false, 
                               ))
                           .toList(),
                     ),
@@ -327,7 +330,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
 
-                  // 2. 최근 검색어 (모드에 따라 타이틀 및 리스트 변경)
+                  // 2. 최근 검색어 영역
                   Text(
                     isIngredientMode ? "최근 검색한 재료" : "최근 검색한 요리",
                     style: const TextStyle(
@@ -338,22 +341,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 10),
                   Builder(builder: (context) {
                     final recentList = isIngredientMode 
-                        ? _vm.recentSearches 
+                        ? _vm.recentIngredientSearches 
                         : _vm.recentRecipeSearches;
 
                     return recentList.isEmpty
-                        ? const Text("최근 검색 기록이 없습니다.",
-                            style: TextStyle(color: Colors.grey, fontSize: 13))
+                        ? const Text("최근 검색 기록이 없습니다.", style: TextStyle(color: Colors.grey, fontSize: 13))
                         : Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: recentList
-                                .map((name) => _buildSuggestionChip(name, 
-                                    isRecommended: isIngredientMode,
-                                    overrideColor: isIngredientMode 
-                                        ? AppColors.primaryGreen 
-                                        : AppColors.primaryOrange))
-                                .toList(),
+                            spacing: 8, runSpacing: 8,
+                            children: recentList.map((dto) => _buildSuggestionChip(
+                                  dto, 
+                                  isRecommended: false,
+                                  overrideColor: isIngredientMode ? AppColors.primaryGreen : AppColors.primaryOrange,
+                                  isRecent: true, 
+                                )).toList(),
                           );
                   }),
                 ],
@@ -363,18 +363,22 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // 📍 [수정] 칩 클릭 시 모드별 동작 분기 및 색상 처리
-  Widget _buildSuggestionChip(String name, {required bool isRecommended, Color? overrideColor}) {
+  Widget _buildSuggestionChip(
+    IngredientSimpleDto item, {
+    required bool isRecommended, 
+    Color? overrideColor,
+    required bool isRecent, 
+  }) {
     final Color baseColor = overrideColor ?? (isRecommended ? AppColors.primaryGreen : Colors.grey);
     final double bgAlpha = isRecommended ? 0.12 : 0.05;
     final double borderAlpha = isRecommended ? 0.3 : 0.1;
+    final String name = item.name;
+
     return InkWell(
       onTap: () {
         if (_vm.selectedType == SearchType.ingredients) {
-          // 재료 모드: 태그로 추가
-          _vm.addIngredient(name);
+          _vm.addIngredient(item);
         } else if (_vm.selectedType == SearchType.recipe) {
-          // 요리 모드: 검색창 텍스트 입력 후 즉시 검색 실행
           _vm.searchController.text = name;
           _vm.submitSearch(name);
         }
@@ -383,7 +387,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: baseColor.withValues(alpha: bgAlpha),
+          color: baseColor.withValues(alpha: bgAlpha), // 이전 지시에 따라 withOpacity 사용
           borderRadius: BorderRadius.circular(30),
           border: Border.all(
               color: baseColor.withValues(alpha: borderAlpha)),
@@ -391,15 +395,23 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.add,
-                size: 14, color: isRecommended ? baseColor : Colors.grey),
-            const SizedBox(width: 4),
+            if (isRecommended) ...[
+              Icon(Icons.add, size: 14, color: baseColor),
+              const SizedBox(width: 4),
+            ],
             Text(name,
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: isRecommended ? Colors.black87 : Colors.black54,
                 )),
+            if (isRecent) ...[
+              const SizedBox(width: 6),
+              GestureDetector(
+                onTap: () => _vm.removeRecentSearch(item), 
+                child: const Icon(Icons.close_rounded, size: 14, color: Colors.grey),
+              ),
+            ]
           ],
         ),
       ),
