@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:oman_fe/features/home/domain/models/recipe_mock_data.dart';
+import 'package:dio/dio.dart';
+import 'dart:async';
+
+import '../../../../core/network/token_interceptor.dart';
+
+import 'package:oman_fe/features/home/domain/repositories/recipe_repository.dart';
+import 'package:oman_fe/features/home/domain/models/recipe_models.dart';
 import 'package:oman_fe/features/home/domain/enums/search_type.dart';
 import '../../../../core/theme/app_colors.dart';
-
 
 class HomeViewModel extends ChangeNotifier {
   SearchType _selectedType = SearchType.none;
@@ -21,49 +26,84 @@ class HomeViewModel extends ChangeNotifier {
   bool get isResultVisible => _isResultVisible;
   bool get hasSelection => _hasSelection;
 
-  final List<String> _selectedIngredients = []; 
-  List<String> _filteredCandidates = [];       
+  final List<IngredientSimpleDto> _selectedIngredients = []; 
+  List<IngredientSimpleDto> _filteredCandidates = [];   
+  
+  List<IngredientSimpleDto> _recentIngredientSearches = [];
+  List<IngredientSimpleDto> _recentRecipeSearches = [];
+
   final FocusNode searchFocusNode = FocusNode(); 
+  Timer? _debounce;
+
+  CulinaryIngredientGroupResponse? recipeDetailData;
+  List<CulinaryRecommendationDto> ingredientSearchResults = [];
+  
+  late final RecipeRepository _repository;
 
   HomeViewModel() {
+    final dio = Dio();
+    dio.interceptors.add(TokenInterceptor(dio));
+    _repository = RecipeRepository(dio);
+
+    _loadRecentSearches();
+
     searchFocusNode.addListener(() {
       notifyListeners();
     });
   }
 
-  List<String> get _allFlattenedIngredients {
-  final data = RecipeMockData.kimchiStew;
-  return [...data.essential, ...data.subIngredients, ...data.seasonings];
-  }
+  List<IngredientSimpleDto> get selectedIngredients => _selectedIngredients;
+  List<int> get selectedIngredientIds => _selectedIngredients.map((e) => e.id!).toList(); // id가 반드시 있다고 가정
 
-  List<String> get selectedIngredients => _selectedIngredients;
-  List<String> get filteredCandidates => _filteredCandidates;
+  List<IngredientSimpleDto> get filteredCandidates => _filteredCandidates;
+  
+  List<IngredientSimpleDto> get recentIngredientSearches => _recentIngredientSearches;
+  List<IngredientSimpleDto> get recentRecipeSearches => _recentRecipeSearches;
+  
   bool get isSearchFocused => searchFocusNode.hasFocus;
 
-  List<String> get recentSearches => ["신김치", "돼지고기", "두부"];
-  List<String> get recentRecipeSearches => ["김치찌개", "된장찌개", "계란말이", "제육볶음"];
-
-  // 📍 화면 가장자리를 물들일 색상 (withValues alpha: 0.5)
   Color get glowColor {
     if (_selectedType == SearchType.none) return Colors.transparent;
     final baseColor = _selectedType == SearchType.ingredients 
         ? AppColors.primaryGreen 
         : AppColors.primaryOrange;
-    return baseColor.withValues(alpha: 0.5);
+    return baseColor.withValues(alpha: 0.5); 
+  }
+
+  Future<void> _loadRecentSearches() async {
+    _recentIngredientSearches = await _repository.getRecentIngredientSearches();
+    _recentRecipeSearches = await _repository.getRecentRecipeSearches();
+    notifyListeners();
+  }
+
+
+  Future<void> removeRecentSearch(IngredientSimpleDto item) async {
+    final String typeStr = _selectedType == SearchType.ingredients ? 'INGREDIENT' : 'RECIPE';
+    
+    if (_selectedType == SearchType.ingredients) {
+      _recentIngredientSearches.removeWhere((e) => e.name == item.name);
+    } else {
+      _recentRecipeSearches.removeWhere((e) => e.name == item.name);
+    }
+    notifyListeners();
+
+    try {
+      await _repository.deleteRecentSearch(typeStr, item.id, item.name);
+    } catch (e) {
+      print("최근 검색어 삭제 실패: $e");
+     
+    }
   }
 
   bool get finalButtonVisible {
-  // 공통 조건: 결과창이 떠있고 로딩 중이 아닐 때
-  if (!_isResultVisible || _isModalLoading) return false;
+    if (!_isResultVisible || _isModalLoading) return false;
 
-  if (_selectedType == SearchType.ingredients) {
-    // 1. 재료 검색 모드: 요리 카드(_selectedDishName)가 선택되었을 때 활성화
-    return _selectedDishName != null;
-  } else {
-    // 2. 요리 검색 모드: 재료 칩(_hasSelection)이 하나라도 선택되었을 때 활성화
-    return _hasSelection;
+    if (_selectedType == SearchType.ingredients) {
+      return _selectedDishName != null;
+    } else {
+      return _hasSelection;
+    }
   }
-}
 
   void toggleDishSelection(String dishName) {
     if (_selectedDishName == dishName) {
@@ -74,58 +114,86 @@ class HomeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-Future<void> toggleType(SearchType type) async {
-  if (_selectedType != SearchType.none && _selectedType != type) {
-    searchController.clear();
-    _isResultVisible = false;
-    _isRealDataLoaded = false;
+  Future<void> toggleType(SearchType type) async {
+    if (_selectedType != SearchType.none && _selectedType != type) {
+      searchController.clear();
+      _isResultVisible = false;
+      _isRealDataLoaded = false;
 
-    if (_selectedIngredients.isNotEmpty) {
-      final int count = _selectedIngredients.length;
-      for (int i = count - 1; i >= 0; i--) {
-        _selectedIngredients.removeAt(i);
-        notifyListeners(); 
-        await Future.delayed(const Duration(milliseconds: 50)); 
+      if (_selectedIngredients.isNotEmpty) {
+        final int count = _selectedIngredients.length;
+        for (int i = count - 1; i >= 0; i--) {
+          _selectedIngredients.removeAt(i);
+          notifyListeners(); 
+          await Future.delayed(const Duration(milliseconds: 50)); 
+        }
+      }
+    }
+    
+    _selectedType = (_selectedType == type) ? SearchType.none : type;
+    notifyListeners();
+  }
+
+  Future<void> submitSearch(String value) async {
+    if (_selectedType == SearchType.ingredients) {
+      if (value.isNotEmpty) {
+        final IngredientSimpleDto? matchedDto = _filteredCandidates
+            .where((dto) => dto.name == value.trim())
+            .firstOrNull;
+
+        if (matchedDto != null) {
+          await addIngredient(matchedDto); 
+        } else {
+          searchController.clear(); 
+        }
+      } 
+    
+      if (_selectedIngredients.isNotEmpty) {
+        await _triggerSearchResult(); 
+      }
+    } 
+    else if (_selectedType == SearchType.recipe) {
+      if (value.isNotEmpty) {
+        await _triggerSearchResult(); 
       }
     }
   }
-  
-  _selectedType = (_selectedType == type) ? SearchType.none : type;
-  notifyListeners();
-}
 
-  void submitSearch(String value) {
-  //  재료 모드일 때 로직 분기
-  if (_selectedType == SearchType.ingredients) {
-    if (value.isNotEmpty) {
-      addIngredient(value); 
-    } else if (_selectedIngredients.isNotEmpty) {
-      _triggerSearchResult(); 
-    }
-  } else if (_selectedType == SearchType.recipe) {
-    if (value.isNotEmpty) {
-      _triggerSearchResult(); 
-    }
-  }
-}
-
-
-void _triggerSearchResult() {
+  Future<void> _triggerSearchResult() async {
     _isResultVisible = true;
     _isModalLoading = true;
     _isRealDataLoaded = false;
     
     _hasSelection = false; 
-    _selectedDishName = null; // ✨ 요리 선택 초기화
+    _selectedDishName = null; 
     
     notifyListeners();
 
-    Future.delayed(const Duration(milliseconds: 1200), () {
+    try {
+      if (_selectedType == SearchType.recipe) {
+        final String recipeName = searchController.text;
+        
+        await _repository.saveRecentSearch("RECIPE", null, recipeName);
+        await _loadRecentSearches(); 
+
+        final result = await _repository.getIngredientStatistics(recipeName);
+        if (result != null) {
+          recipeDetailData = result;
+          _selectedDishName = recipeName; 
+        }
+      } else if (_selectedType == SearchType.ingredients) {
+        final result = await _repository.getCulinaryRecommendations(selectedIngredientIds);
+        ingredientSearchResults = result;
+      }
+    } catch (e) {
+      print("검색 데이터 로드 에러: $e");
+    } finally {
       _isModalLoading = false;
       _isRealDataLoaded = true;
       notifyListeners();
-    });
-}
+    }
+  }
+
   void updateSelection(bool has) {
     _hasSelection = has;
     notifyListeners();
@@ -137,20 +205,24 @@ void _triggerSearchResult() {
   }
 
   void onSearchTextChanged(String text) {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+
     if (text.isEmpty) {
       _filteredCandidates = [];
-    } else {
-      // 입력값 포함 여부 확인 & 중복 선택 방지
-      _filteredCandidates = _allFlattenedIngredients
-          .where((item) => item.contains(text) && !_selectedIngredients.contains(item))
-          .toSet().toList(); 
+      notifyListeners();
+      return;
     }
-    notifyListeners();
+
+    _debounce = Timer(const Duration(milliseconds: 300), () async {
+      final results = await _repository.getAutocomplete(text);
+      _filteredCandidates = results.where((item) => !_selectedIngredients.contains(item)).toList();
+      notifyListeners();
+    });
   }
 
-  void addIngredient(String name) {
-    if (!_selectedIngredients.contains(name)) {
-      _selectedIngredients.add(name);
+  Future<void> addIngredient(IngredientSimpleDto ingredient) async {
+    if (!_selectedIngredients.contains(ingredient)) {
+      _selectedIngredients.add(ingredient);
       searchController.clear(); 
       _filteredCandidates = []; 
       notifyListeners();
@@ -158,11 +230,14 @@ void _triggerSearchResult() {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         searchFocusNode.requestFocus();
       });
+
+      await _repository.saveRecentSearch("INGREDIENT", ingredient.id, ingredient.name);
+      await _loadRecentSearches(); 
     }
   }
   
-  void removeIngredient(String name) {
-    _selectedIngredients.remove(name);
+  void removeIngredient(IngredientSimpleDto ingredient) {
+    _selectedIngredients.remove(ingredient);
     notifyListeners();
   }
 
@@ -176,8 +251,9 @@ void _triggerSearchResult() {
 
   @override
   void dispose() {
-  searchController.dispose();
-  searchFocusNode.dispose(); // 추가
-  super.dispose();
-}
+    searchController.dispose();
+    searchFocusNode.dispose(); 
+    _debounce?.cancel();
+    super.dispose();
+  }
 }
