@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:oman_fe/features/home/domain/services/search_api_service.dart';
 import '../../../../core/theme/app_colors.dart';
-import 'package:oman_fe/features/home/domain/enums/search_type.dart';
+import '../../../../core/di/injection.dart'; 
+import '../../domain/enums/search_type.dart';
+import '../../domain/repositories/recipe_repository.dart';
+
+import '../state/home_viewmodel.dart';
 import '../widgets/animations/bounce_wrapper.dart';
-import '../widgets/home_search_bar.dart';
-import '../widgets/home_category_button.dart';
-import '../widgets/recipe_report_sheet.dart';
-import '../widgets/yotube_recommendation_layer.dart';
-import 'home_viewmodel.dart';
-import '../../domain/models/recipe_models.dart';
+import '../widgets/home/home_search_bar.dart';
+import '../widgets/home/home_category_button.dart';
+import '../widgets/home/search_suggestions_box.dart';
+import '../widgets/home/floating_search_button.dart';
+import '../widgets/recipe/recipe_report_sheet.dart';
+import '../widgets/youtube/yotube_recommendation_layer.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -17,9 +22,10 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final HomeViewModel _vm = HomeViewModel();
+  late final HomeViewModel _vm;
   final GlobalKey<SequentialBounceWrapperState> _leftKey = GlobalKey();
   final GlobalKey<SequentialBounceWrapperState> _rightKey = GlobalKey();
+  
   bool _isYoutubeLayerActive = false;
   bool _isButtonSlidingDown = false; 
   bool _isButtonPressed = false;
@@ -27,6 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _vm = HomeViewModel(recipeRepository: getIt<RecipeRepository>() , searchApiService: getIt<SearchApiService>());
     _vm.addListener(() => setState(() {}));
   }
 
@@ -37,28 +44,23 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _handleFloatingButtonTap() async {
-    // 1. 눌림 액션 (작아짐)
     setState(() => _isButtonPressed = true);
-    await Future.delayed(const Duration(milliseconds: 100)); // 0.1초
+    await Future.delayed(const Duration(milliseconds: 100));
 
-    // 2. 복구 액션 (원래 크기)
     setState(() => _isButtonPressed = false);
-    await Future.delayed(const Duration(milliseconds: 100)); // 0.1초
+    await Future.delayed(const Duration(milliseconds: 100));
 
-    // 3. 아래로 슬라이드 다운
     setState(() => _isButtonSlidingDown = true);
-    await Future.delayed(const Duration(milliseconds: 500)); // 0.5초 (슬라이드 시간)
+    await Future.delayed(const Duration(milliseconds: 500));
 
-    // 4. 유튜브 레이어 활성화
     if (mounted) {
       setState(() {
         _isYoutubeLayerActive = true;
-        _isButtonSlidingDown = false; // 초기화
+        _isButtonSlidingDown = false; 
       });
     }
   }
   
-
   @override
   Widget build(BuildContext context) {
     final double screenHeight = MediaQuery.of(context).size.height;
@@ -74,16 +76,11 @@ class _HomeScreenState extends State<HomeScreen> {
           AnimatedContainer(
             duration: const Duration(milliseconds: 800),
             curve: Curves.easeInOut,
-            width: screenWidth,
-            height: screenHeight,
+            width: screenWidth, height: screenHeight,
             decoration: BoxDecoration(
               gradient: RadialGradient(
-                center: Alignment.center,
-                radius: 1.3,
-                colors: [
-                  Colors.transparent,
-                  _vm.glowColor,
-                ],
+                center: Alignment.center, radius: 1.3,
+                colors: [Colors.transparent, _vm.glowColor],
                 stops: const [0.5, 1.0],
               ),
             ),
@@ -95,23 +92,26 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           SafeArea(
             bottom: false,
-            child: Stack(
-              children: [
-                _buildMainUI(screenHeight),
-              ],
-            ),
+            child: Stack(children: [_buildMainUI(screenHeight)]),
           ),
+          
           _buildResultLayer(sheetHeight),
+          
           if (_isYoutubeLayerActive)
             YoutubeRecommendationLayer(
+              repository: getIt<RecipeRepository>(),
               culinaryName: _vm.selectedDishName ?? "김치찌개", 
               ingredientIds: _vm.selectedIngredientIds, 
-              onClose: () {
-                setState(() => _isYoutubeLayerActive = false);
-              },
+              onClose: () => setState(() => _isYoutubeLayerActive = false),
             ),
-          if (!_isYoutubeLayerActive) // 유튜브 레이어가 활성화되면 버튼 숨김
-            _buildFloatingButtonLayer(),
+            
+          if (!_isYoutubeLayerActive)
+            FloatingSearchButton(
+              isVisible: _vm.finalButtonVisible,
+              isSlidingDown: _isButtonSlidingDown,
+              isPressed: _isButtonPressed,
+              onTap: _handleFloatingButtonTap,
+            ),
         ],
       ),
     );
@@ -122,8 +122,7 @@ class _HomeScreenState extends State<HomeScreen> {
       duration: const Duration(milliseconds: 600),
       curve: Curves.fastOutSlowIn,
       top: _vm.isResultVisible ? 40 : screenHeight * 0.22,
-      left: 24,
-      right: 24,
+      left: 24, right: 24,
       child: Column(
         children: [
           Image.asset('assets/images/logo.png', width: 220),
@@ -139,18 +138,17 @@ class _HomeScreenState extends State<HomeScreen> {
               _rightKey.currentState?.play();
             },
           ),
-          _buildSearchSuggestions(),
+          
+          SearchSuggestionsBox(vm: _vm), 
+          
           const SizedBox(height: 30),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               SequentialBounceWrapper(
-                key: _leftKey,
-                isLeft: true,
+                key: _leftKey, isLeft: true,
                 child: HomeCategoryButton(
-                  type: SearchType.ingredients,
-                  label: "재료",
-                  icon: Icons.eco_rounded,
+                  type: SearchType.ingredients, label: "재료", icon: Icons.eco_rounded,
                   baseColor: AppColors.primaryGreen,
                   isSelected: _vm.selectedType == SearchType.ingredients,
                   onTap: () => _vm.toggleType(SearchType.ingredients),
@@ -158,12 +156,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(width: 12),
               SequentialBounceWrapper(
-                key: _rightKey,
-                isLeft: false,
+                key: _rightKey, isLeft: false,
                 child: HomeCategoryButton(
-                  type: SearchType.recipe,
-                  label: "요리",
-                  icon: Icons.soup_kitchen_rounded,
+                  type: SearchType.recipe, label: "요리", icon: Icons.soup_kitchen_rounded,
                   baseColor: AppColors.primaryOrange,
                   isSelected: _vm.selectedType == SearchType.recipe,
                   onTap: () => _vm.toggleType(SearchType.recipe),
@@ -181,238 +176,21 @@ class _HomeScreenState extends State<HomeScreen> {
       duration: const Duration(milliseconds: 700),
       curve: Curves.easeOutQuart,
       bottom: _vm.isResultVisible ? 0 : -(sheetHeight - 80.0),
-      left: 0,
-      right: 0,
-      height: sheetHeight,
+      left: 0, right: 0, height: sheetHeight,
       child: GestureDetector(
         onVerticalDragUpdate: (details) {
           if (details.delta.dy < -5) _vm.setResultVisible(true);
           if (details.delta.dy > 5) _vm.setResultVisible(false);
         },
-        child: Stack(
-          alignment: Alignment.topCenter,
-          clipBehavior: Clip.none,
-          children: [
-            RecipeReportSheet(
-              isLoading: _vm.isModalLoading,
-              isResultVisible: _vm.isRealDataLoaded,
-              isIngredientSearch: _vm.selectedType == SearchType.ingredients,
-              selectedDishName: _vm.selectedDishName,
-              onDishSelected: (dishName) => _vm.toggleDishSelection(dishName),
-              onSelectionChanged: (hasSelection) => _vm.updateSelection(hasSelection),
-              recipeDetailData: _vm.recipeDetailData,
-              ingredientResults: _vm.ingredientSearchResults,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFloatingButtonLayer() {
-    // 버튼이 보이는 조건: 뷰모델 visible AND 슬라이드 다운 전
-    bool showPosition = _vm.finalButtonVisible && !_isButtonSlidingDown;
-
-    return AnimatedPositioned(
-      duration: const Duration(milliseconds: 500),
-      curve: showPosition ? Curves.easeOutBack : Curves.easeInOut,
-      // 클릭 시퀀스가 끝나고 _isButtonSlidingDown이 true가 되면 -100으로 내려감
-      bottom: showPosition ? 30 : -100, 
-      left: 0,
-      right: 0,
-      child: Center(
-        child: AnimatedScale(
-          duration: const Duration(milliseconds: 100),
-          scale: _isButtonPressed ? 0.9 : 1.0, // 눌리면 0.9배, 아니면 1.0배
-          curve: Curves.easeInOut,
-          child: _buildFloatingButtonContent(),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFloatingButtonContent() {
-    const Color youtubeRed = Color(0xFFFF0000);
-    return GestureDetector(
-    onTap: _vm.finalButtonVisible ? _handleFloatingButtonTap : null,
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-      decoration: BoxDecoration(
-        color: youtubeRed, // ✨ 빨간색 적용
-        borderRadius: BorderRadius.circular(30),
-        boxShadow: [
-          if (_vm.finalButtonVisible)
-            BoxShadow(
-              color: youtubeRed.withValues(alpha: 0.4), // 그림자도 붉은색
-              blurRadius: 12,
-              offset: const Offset(0, 6),
-            )
-        ],
-      ),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // ✨ 유튜브 느낌의 재생 아이콘
-          Icon(Icons.play_arrow_rounded, color: Colors.white, size: 22),
-          SizedBox(width: 8),
-          Text(
-            "요리와 재료로 영상 찾기", // ✨ 텍스트 변경
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-              fontFamily: 'Pretendard',
-            ),
-          ),
-        ],
-      ),
-    ),
-    );
-  }
-
-  // 📍 [수정] 요리 모드 대응 및 최근 요리 검색 섹션 추가
-  Widget _buildSearchSuggestions() {
-    final bool isIngredientMode = _vm.selectedType == SearchType.ingredients;
-    final bool hasType = _vm.selectedType != SearchType.none;
-    final bool hasRecommendations = isIngredientMode && 
-        _vm.searchController.text.isNotEmpty && 
-        _vm.filteredCandidates.isNotEmpty;
-
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutQuart,
-      child: hasType
-          ? Container(
-              margin: const EdgeInsets.only(top: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.95),// 이전 지시에 따라 withOpacity 또는 withValues 사용
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 15,
-                    offset: const Offset(0, 5),
-                  )
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // 1. 추천 재료 (자동완성)
-                  if (isIngredientMode && hasRecommendations) ...[
-                    const Text(
-                      "추천 재료",
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.primaryGreen),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _vm.filteredCandidates
-                          .map((dto) => _buildSuggestionChip(
-                                dto, 
-                                isRecommended: true, 
-                                overrideColor: AppColors.primaryGreen,
-                                isRecent: false, 
-                              ))
-                          .toList(),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Divider(
-                          height: 1, color: Colors.grey.withValues(alpha: 0.1)),
-                    ),
-                  ],
-
-                  // 2. 최근 검색어 영역
-                  Text(
-                    isIngredientMode ? "최근 검색한 재료" : "최근 검색한 요리",
-                    style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey),
-                  ),
-                  const SizedBox(height: 10),
-                  Builder(builder: (context) {
-                    final recentList = isIngredientMode 
-                        ? _vm.recentIngredientSearches 
-                        : _vm.recentRecipeSearches;
-
-                    return recentList.isEmpty
-                        ? const Text("최근 검색 기록이 없습니다.", style: TextStyle(color: Colors.grey, fontSize: 13))
-                        : Wrap(
-                            spacing: 8, runSpacing: 8,
-                            children: recentList.map((dto) => _buildSuggestionChip(
-                                  dto, 
-                                  isRecommended: false,
-                                  overrideColor: isIngredientMode ? AppColors.primaryGreen : AppColors.primaryOrange,
-                                  isRecent: true, 
-                                )).toList(),
-                          );
-                  }),
-                ],
-              ),
-            )
-          : const SizedBox.shrink(),
-    );
-  }
-
-  Widget _buildSuggestionChip(
-    IngredientSimpleDto item, {
-    required bool isRecommended, 
-    Color? overrideColor,
-    required bool isRecent, 
-  }) {
-    final Color baseColor = overrideColor ?? (isRecommended ? AppColors.primaryGreen : Colors.grey);
-    final double bgAlpha = isRecommended ? 0.12 : 0.05;
-    final double borderAlpha = isRecommended ? 0.3 : 0.1;
-    final String name = item.name;
-
-    return InkWell(
-      onTap: () {
-        if (_vm.selectedType == SearchType.ingredients) {
-          _vm.addIngredient(item);
-        } else if (_vm.selectedType == SearchType.recipe) {
-          _vm.searchController.text = name;
-          _vm.submitSearch(name);
-        }
-      },
-      borderRadius: BorderRadius.circular(30),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: baseColor.withValues(alpha: bgAlpha), // 이전 지시에 따라 withOpacity 사용
-          borderRadius: BorderRadius.circular(30),
-          border: Border.all(
-              color: baseColor.withValues(alpha: borderAlpha)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isRecommended) ...[
-              Icon(Icons.add, size: 14, color: baseColor),
-              const SizedBox(width: 4),
-            ],
-            Text(name,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: isRecommended ? Colors.black87 : Colors.black54,
-                )),
-            if (isRecent) ...[
-              const SizedBox(width: 6),
-              GestureDetector(
-                onTap: () => _vm.removeRecentSearch(item), 
-                child: const Icon(Icons.close_rounded, size: 14, color: Colors.grey),
-              ),
-            ]
-          ],
+        child: RecipeReportSheet(
+          isLoading: _vm.isModalLoading,
+          isResultVisible: _vm.isRealDataLoaded,
+          isIngredientSearch: _vm.selectedType == SearchType.ingredients,
+          selectedDishName: _vm.selectedDishName,
+          onDishSelected: (dishName) => _vm.toggleDishSelection(dishName),
+          onSelectionChanged: (hasSelection) => _vm.updateSelection(hasSelection),
+          recipeDetailData: _vm.recipeDetailData,
+          ingredientResults: _vm.ingredientSearchResults,
         ),
       ),
     );
