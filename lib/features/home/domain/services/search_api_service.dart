@@ -1,54 +1,67 @@
 import 'package:dio/dio.dart';
-import '../../domain/models/recipe_models.dart';
+import 'package:flutter/foundation.dart';
 import '../../../../core/config/api_constants.dart';
+import '../models/recipe_models.dart';
 
 class SearchApiService {
   final Dio _dio; 
 
   SearchApiService(this._dio);
 
+  // 최근 검색어 조회 (타입별: INGREDIENT, RECIPE)
   Future<List<IngredientSimpleDto>> getRecentSearches(String type) async {
     try {
       final response = await _dio.get(
-        '${ApiConstants.baseUrl}/api/v1/search-history',
+        ApiConstants.searchHistory, // 하드코딩된 URL 대신 상수 사용
         queryParameters: {'type': type},
       );
-      return (response.data as List)
-          .map((json) => IngredientSimpleDto.fromJson(json))
-          .toList();
+      
+      if (response.statusCode == 200 && response.data != null) {
+        final list = (response.data as List).map((e) {
+          final id = e['id'] ?? e['keywordId'] ?? 0;
+          final name = e['name'] ?? e['keyword'] ?? '';
+          return IngredientSimpleDto(id: id, name: name);
+        }).toList();
+
+        // 빈 문자열 방어 코드
+        return list.where((item) => item.name.trim().isNotEmpty).toList();
+      }
+      return [];
     } catch (e) {
-      print('최근 검색어 로드 실패: $e');
+      debugPrint('[SearchApiService] 최근 검색어 로드 실패 ($type): $e');
       return [];
     }
   }
 
-  Future<void> saveRecentSearch(String type, IngredientSimpleDto item) async {
+  // 최근 검색어 저장
+  Future<void> saveRecentSearch(String type, int? keywordId, String keyword) async {
     try {
       await _dio.post(
-        '${ApiConstants.baseUrl}/api/v1/search-history',
+        ApiConstants.searchHistory,
         data: {
           'type': type,
-          'keywordId': item.id,
-          'keyword': item.name,
+          'keywordId': keywordId,
+          'keyword': keyword,
         },
       );
     } catch (e) {
-      print('검색어 저장 실패: $e');
+      debugPrint('[SearchApiService] 최근 검색어 저장 실패: $e');
     }
   }
 
-  Future<void> deleteRecentSearch(String type, IngredientSimpleDto item) async {
+  // 최근 검색어 삭제
+  Future<void> deleteRecentSearch(String type, int? keywordId, String keyword) async {
     try {
       await _dio.delete(
-        '${ApiConstants.baseUrl}/api/v1/search-history',
+        ApiConstants.searchHistory,
         data: {
           'type': type,
-          'keywordId': item.id,
-          'keyword': item.name,
+          'keywordId': keywordId,
+          'keyword': keyword,
         },
       );
     } catch (e) {
-      print('검색어 삭제 실패: $e');
+      debugPrint('[SearchApiService] 최근 검색어 삭제 실패: $e');
     }
   }
 }
