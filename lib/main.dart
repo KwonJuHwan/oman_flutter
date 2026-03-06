@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'core/theme/app_colors.dart';
 import 'features/auth/presentation/screens/login_screen.dart';
+import 'core/di/injection.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  setupDependencies();
   runApp(const RecipeApp());
 }
 
